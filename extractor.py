@@ -3,15 +3,16 @@ try:
 except ImportError:
     import Image
 
-import pytesseract, sys, os
+import pytesseract, sys, os, cv2, cropper
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+
 
 pytesseract.pytesseract.tesseract_cmd = 'C:/Program Files/Tesseract-OCR/tesseract.exe'
 
 class ocrCore():
-    def __init__(self, imgPath, lang, oem=3, psm=12):
-        self.img =  Image.open(imgPath)
+    def __init__(self, img, lang, oem=3, psm=12):
+        self.img =  img
         self.psm = psm
         self.oem = oem
         self.lang = lang
@@ -48,13 +49,23 @@ class ocrCore():
             ax.add_patch(rect)
         
         plt.savefig(savePath, bbox_inches='tight', pad_inches=0.0, dpi=200)
-
+    
+    def getImage(self):
+        return self.img
 
 #print(pytesseract.get_languages())
-path = os.path.join(sys.path[0], 'raw2.jpg')
-lang='jpn+jpn_vert'
-ocr = ocrCore(path, lang, 3, 12)
-print(ocr.getString().strip())
-#x = ocr.getData()
-#print(x)
-ocr.exportBoxes()
+path = os.path.join(sys.path[0], 'raw1.jpg')
+ePath = os.path.join(sys.path[0], 'crop')
+img = Image.open(path)
+cropped = cropper.getCrop(img, ePath)
+lang='jpn_vert'
+for i in cropped:
+    
+    ocr = ocrCore(i, lang, 3, 12)
+    s = ocr.getString().strip()
+    if s != '':
+        print(i)
+        print(s)
+    #x = ocr.getData()
+    #print(x)
+    #ocr.exportBoxes()
