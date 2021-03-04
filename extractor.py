@@ -54,63 +54,79 @@ class ocrCore():
             ax.add_patch(rect)
         
         plt.savefig(savePath, bbox_inches='tight', pad_inches=0.0, dpi=200)
-    
-    def alignBoxes(self, wordList, tolerance=0.01):
-        return 0
+
+    def alignBoxes(self, wordList, tolerance=0.05):
+        width, height = self.img.size
+        vh = 1
+        size = height
+        if 'vert' in self.lang: 
+            vh = 0 
+            size = width
+
+        original = sorted(wordList, key=lambda word: word[vh]) 
+        copy = sorted(wordList, key=lambda word: word[vh]) 
+        n = len(original)
+        
+        while True:
+            for i in range(n):
+                if i + 1 == n: continue
+                cur = copy[i][vh]
+                nxt = copy[i+1][vh]
+                pChange = (nxt - cur)/size
+                #print(copy[i][3], '->', copy[i+1][3], pChange )
+                if abs(pChange) == 0: continue
+                if abs(pChange) <= tolerance: copy[i+1][vh] = cur
+            
+            if copy == original: break
+            else: original = copy
+        
+        #print(original)
+        return original
 
     def orderText(self):
         data = self.getData()
         wordList = []
-        maxArea = 0
-        maxLeft = 0
-        maxTop = 0
-        
+        areaAlign, leftAlign, topAlign = 0, 0 ,0
+
         for i in range(len(data['text'])):
+            if int(data['conf'][i]) < 90: continue
             text = data['text'][i]
-            if len(text) == 0: continue
             left = data['left'][i]
             top = data['top'][i]
             area = data['width'][i] * data['height'][i]
-            if left > maxLeft: maxLeft = left
-            if top > maxTop: maxTop = top
-            if area > maxArea: maxArea = area
+            if left > leftAlign:    leftAlign = left
+            if top  > topAlign:     topAlign = top
+            if area > areaAlign:    areaAlign = area
             
-
             wordList.append([left, top, area, text])
         
-        maxArea = 10**len(str(maxArea))
-        maxTop = 10**len(str(maxTop))
-        maxLeft = 10**len(str(maxLeft))
-
-        #print(wordList)
-
+        areaAlign   = 10**len(str(areaAlign))
+        leftAlign   = 10**len(str(leftAlign))
+        topAlign    = 10**len(str(topAlign))
+        
+        wordList = self.alignBoxes(wordList)
         rank = []
         for w in wordList:
             left = w[0]
             top = w[1]
             area = w[2]
-            if not self.readFromTop: top = maxTop - top
-            if not self.readFromLeft: left = maxLeft - left
+            if not self.readFromTop:  top = topAlign - top
+            if not self.readFromLeft: left = leftAlign - left
             
-            if 'vert' in self.lang:
-                l = ((top * maxLeft) + left) * maxArea
-            else:
-                l = ((left * maxTop) + top) * maxArea
-                
+            if 'vert' in self.lang: l = ((left * topAlign) + top) * areaAlign
+            else: l = ((top * leftAlign) + left) * areaAlign
             
             l += area
             rank.append((l, w[3]))
         
-        r = [z[1] for z in sorted(rank, key=lambda word: word[0])]
-        #print(sorted(rank, key=lambda word: word[0]))
-        #print(r)
-        return r
+        rank = [z[1] for z in sorted(rank, key=lambda word: word[0])]
+        return rank
 
     def getImage(self):
         return self.img
 
 #print(pytesseract.get_languages())
-path = os.path.join(sys.path[0], 'raw8.png')
+path = os.path.join(sys.path[0], 'raw6.png')
 ePath = os.path.join(sys.path[0], 'crop')
 img = Image.open(path)
 cropped = cropper.getCrop(img, ePath)
@@ -119,28 +135,21 @@ translator = google_translator()
 n = 0
 for i in cropped:
     print('bubble', n)
-    ocr = ocrCore(i, lang, 3, 12)
+    ocr = ocrCore(i, lang, 3,  12)
     s = ocr.getString().strip()
     
-    
     l = ocr.orderText()
-    '''
-    print(l)
+    combined = ''
+    
     for x in l:
-        t = translator.translate(x,lang_tgt='en')
         if any(c.isalpha() for c in x):
-            print(x, '->', t)
-    '''
-    '''
-    if s != '':
-        for x in s.split('\n'):
-            t = translator.translate(x,lang_tgt='en')
-            if any(c.isalpha() for c in x):
-                print(x, '->', t)
-        #print(s)
-    '''
-    #x = ocr.getData()
-    #print(x)
-    #ocr.exportBoxes((os.path.join(ePath, str(n)), '.jpg'))
+            combined += x
+    
+    print(l)
+    print(combined)
+    t = translator.translate(combined,lang_tgt='en')
+    print(combined, '->',t)
+    
+    ocr.exportBoxes((os.path.join(ePath, str(n)), '.jpg'))
     n += 1
     print()
