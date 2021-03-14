@@ -7,8 +7,6 @@ import pytesseract, sys, os, cv2, cropper
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from google_trans_new import google_translator 
-
-
 pytesseract.pytesseract.tesseract_cmd = 'C:/Program Files/Tesseract-OCR/tesseract.exe'
 
 class ocrCore():
@@ -42,13 +40,14 @@ class ocrCore():
         config = '--oem {} --psm {}'.format(self.oem, self.psm)
         return pytesseract.image_to_boxes(self.img, lang=self.lang, config=config)
     
-    def exportBoxes(self, fnfe = None):
+    def exportBoxes(self, conf = 90, fnfe = None):
         # Exports a copy of the image with all the text detection boxes displayed
         ## fnfe - list/tuple where list[0] = file name and list[1] = file extension for export
-        ##      - if fnfn = None, will attempt to use the file name as a base for export name
+        ##        if fnfn = None, will attempt to use the file name as a base for export name
         if fnfe == None: fn, fe = os.path.splitext(self.img.filename)
         else: fn, fe = fnfe
         
+        #TO DO : and conf elimnator
         savePath = fn + '_' + str(self.oem) + '-' + str(self.psm) + fe        
         fig = plt.figure(frameon=False)
         ax = fig.add_axes([0, 0, 1, 1])
@@ -57,6 +56,7 @@ class ocrCore():
         data = self.getData()
         
         for i in range(len(data['text'])):
+            if int(data['conf'][i]) < conf: continue 
             left = data['left'][i]
             top = data['top'][i]
             width = data['width'][i]
@@ -66,78 +66,84 @@ class ocrCore():
         
         plt.savefig(savePath, bbox_inches='tight', pad_inches=0.0, dpi=200)
 
-    def alignBoxes(self, wordList, tolerance=0.05):
-        # Align the cordinates of the text boxes so they can be ordered properly by orderText()
-        ## wordList - list of words and their location info : [left, top, area, text]
-        ## tolerance - float of amount of tolerance (higher tolerance = more aligning)
-        ## return -  list of words and their location info : [left, top, area, text]
-        width, height = self.img.size
-        vh = 1
-        size = height
-        if 'vert' in self.lang: 
-            vh = 0 
-            size = width
+    def alignBoxes(self, wordList, tolerance=0.33):     
+        # if text detection boxes are closed together align them according to reading style 
+        ## wordList - list of [left, top, width, height, word] representing text detection box
+        ## tolerance - percent of median box's dimension (width or height) that can be considered alignable
+        ## return - list of [left, top, width, height, word] representing text detection box
+        base = 3 #height
+        start = 1 #top
+        if 'vert' in self.lang:
+            base  = 2 #width
+            start = 0 #left
+        mPos = int((len(wordList)+1)/2)
 
-        original = sorted(wordList, key=lambda word: word[vh]) 
-        copy = sorted(wordList, key=lambda word: word[vh]) 
-        n = len(original)
+        if mPos == 0: return wordList
+        median = [x[base] for x in sorted(wordList, key=lambda word: word[base])][mPos]
+        medianTolerance = median * tolerance
+        
+        
+        sortAlign = sorted(wordList, key=lambda word: word[start])
+        SACopy = sortAlign
         
         while True:
-            for i in range(n):
-                if i + 1 == n: continue
-                cur = copy[i][vh]
-                nxt = copy[i+1][vh]
-                pChange = (nxt - cur)/size
-                #print(copy[i][3], '->', copy[i+1][3], pChange )
-                if abs(pChange) == 0: continue
-                if abs(pChange) <= tolerance: copy[i+1][vh] = cur
-            
-            if copy == original: break
-            else: original = copy
-        
-        #print(original)
-        return original
+            for i in range(len(sortAlign)):
+                if i + 1 == len(sortAlign): continue 
+                
+                cur = SACopy[i][start]
+                nxt = SACopy[i+1][start]
+                if 'vert' in self.lang:
+                    cur += SACopy[i+1][base]
+                    nxt += SACopy[i+1][base]
 
+                if nxt - cur == 0: continue
+                if abs(nxt - cur) <= medianTolerance: SACopy[i+1][start] = SACopy[i][start]
+            
+            if SACopy == sortAlign: break
+            else: sortAlign = SACopy
+        
+        return sortAlign
+    
     def orderText(self):
         # When using using certain psm (like 11 or 12) text extracted are unordered. Reorder the extracted text
         # ordering depends on 'readfrom' class variables
         ## return - list of ordered extracted text
         data = self.getData()
         wordList = []
-        areaAlign, leftAlign, topAlign = 0, 0 ,0
+        areaMax, leftMax, topMax = 0, 0, 0
 
         for i in range(len(data['text'])):
-            if int(data['conf'][i]) < 90: continue
-            text = data['text'][i]
-            left = data['left'][i]
-            top = data['top'][i]
-            area = data['width'][i] * data['height'][i]
-            if left > leftAlign:    leftAlign = left
-            if top  > topAlign:     topAlign = top
-            if area > areaAlign:    areaAlign = area
+            if int(data['conf'][i]) < 90: continue 
+            left, top, width, height = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
+            info = [left, top, width, height, data['text'][i]]
+
+            if left > leftMax:          leftMax = left
+            if top  > topMax:           topMax = top
+            if width*height > areaMax:  areaMax = width*height
             
-            wordList.append([left, top, area, text])
+            wordList.append(info)
         
-        areaAlign   = 10**len(str(areaAlign))
-        leftAlign   = 10**len(str(leftAlign))
-        topAlign    = 10**len(str(topAlign))
+        areaMax   = 10**len(str(areaMax))
+        leftMax   = 10**len(str(leftMax))
+        topMax    = 10**len(str(topMax))
         
         wordList = self.alignBoxes(wordList)
         rank = []
-        for w in wordList:
-            left = w[0]
-            top = w[1]
-            area = w[2]
-            if not self.readFromTop:  top = topAlign - top
-            if not self.readFromLeft: left = leftAlign - left
+        for i in range(len(wordList)):
+            left = wordList[i][0]
+            top  = wordList[i][1]
+            area = wordList[i][2] * wordList[i][3]
+            if not self.readFromTop:  top = topMax - top
+            if not self.readFromLeft: left = leftMax - left
             
-            if 'vert' in self.lang: l = ((left * topAlign) + top) * areaAlign
-            else: l = ((top * leftAlign) + left) * areaAlign
+            if 'vert' in self.lang: l = ((left * topMax) + top)  * areaMax
+            else:                   l = ((top * leftMax) + left) * areaMax
             
             l += area
-            rank.append((l, w[3]))
-        
+            rank.append((l, wordList[i][4]))
+
         rank = [z[1] for z in sorted(rank, key=lambda word: word[0])]
+        
         return rank
 
     def getImage(self):
@@ -145,31 +151,32 @@ class ocrCore():
         return self.img
 
 if __name__ == "__main__":
+    translator = google_translator()  
+    lang='jpn_vert'
+
     #print(pytesseract.get_languages())
-    path = os.path.join(sys.path[0], 'raw6.png')
+    path = os.path.join(sys.path[0], 'raw8.png')
     ePath = os.path.join(sys.path[0], 'crop')
+    
     img = Image.open(path)
     cropped = cropper.getCrop(img, ePath)
-    lang='jpn_vert'
-    translator = google_translator()  
+    
     n = 0
     for i in cropped:
         print('bubble', n)
         ocr = ocrCore(i, lang, 3,  12)
-        s = ocr.getString().strip()
+        #extractedText = ocr.getString().strip()
+        orderedText = ocr.orderText()
+        combinedText = ''
+        print(orderedText)
+        for ot in orderedText:
+            if any(c.isalpha() for c in ot):
+                combinedText += ot
         
-        l = ocr.orderText()
-        combined = ''
+        #print(orderedText)
+        tranlastedText = translator.translate(combinedText,lang_tgt='en')
+        print(combinedText, '->', tranlastedText)
         
-        for x in l:
-            if any(c.isalpha() for c in x):
-                combined += x
-        
-        print(l)
-        print(combined)
-        t = translator.translate(combined,lang_tgt='en')
-        print(combined, '->',t)
-        
-        ocr.exportBoxes((os.path.join(ePath, str(n)), '.jpg'))
+        ocr.exportBoxes(fnfe=(os.path.join(ePath, str(n)), '.jpg'))
         n += 1
         print()
