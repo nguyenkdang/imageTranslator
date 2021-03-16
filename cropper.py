@@ -2,20 +2,6 @@ import cv2, os, sys
 import numpy as np
 from PIL import Image
 
-def getContours(image):
-    ## attempt to find word bubbles from image
-    img = np.array(image)
-    #image to gray scale to binary
-    grayImg = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    binaryImg = cv2.threshold(grayImg,235,255,cv2.THRESH_BINARY)[1]
-    
-    # Find contours and heirarchy
-    contours, hierarchy = cv2.findContours(binaryImg, cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
-    
-    #filter contours 
-    contourDict = filterContours(contours, hierarchy)
-
-    return list(contourDict.values())
 
 def filterContours(contours, hierarchy, mini= 4000, maxi= 120000):
     contourDict = {}
@@ -35,16 +21,33 @@ def filterContours(contours, hierarchy, mini= 4000, maxi= 120000):
 
     return contourDict
 
+def getContours(image):
+    ## attempt to find word bubbles from image
+    img = np.array(image)
+    #image to gray scale to binary
+    grayImg = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    binaryImg = cv2.threshold(grayImg,235,255,cv2.THRESH_BINARY)[1]
+    
+    # Find contours and heirarchy
+    contours, hierarchy = cv2.findContours(binaryImg, cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
+    
+    #filter contours 
+    contourDict = filterContours(contours, hierarchy)
+
+    return list(contourDict.values())
+
 def getCrop(image, exportEach = None, exportAll=None):
     fn, fe = os.path.splitext(image.filename)
     fn = fn.split('\\')[-1]
     contours =  getContours(image)
     img = np.array(image)
-    cropImages = []
+    cropImages = {'image':[], 'left':[], 'top':[]}
     for i, contr in enumerate(contours):
         x, y, w, h = cv2.boundingRect(contr)
         cropImg = image.crop((x, y, x+w, y+h))
-        cropImages.append(cropImg)
+        cropImages['image'].append(cropImg)
+        cropImages['left'].append(x)
+        cropImages['top'].append(y)
         
         if exportEach != None:
             cpath = os.path.join(exportEach, '{}_crop-{}{}'.format(fn, i, fe))

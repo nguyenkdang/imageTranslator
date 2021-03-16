@@ -9,36 +9,42 @@ import matplotlib.patches as patches
 from google_trans_new import google_translator 
 pytesseract.pytesseract.tesseract_cmd = 'C:/Program Files/Tesseract-OCR/tesseract.exe'
 
-class ocrCore():
+class ocrPanel():
     def __init__(self, img, lang, oem=3, psm=12):
         ## img - image file
         ## psm/oem - int defining the mode of text extraction oem(0-3), psm(0-13)
         ## lang - string of language to extract (use pytesseract.get_languages() to get avaiilible languages)
         ## readFromTop/Left - bool of which region to read from 
-        self.img =  img
+        self.img = img
         self.psm = psm
         self.oem = oem
+        self.config = '--oem {} --psm {}'.format(self.oem, self.psm)
         self.lang = lang
         self.readFromTop = True
         self.readFromLeft = False
+        self.data = pytesseract.image_to_data(self.img, lang=self.lang, config=self.config, output_type= pytesseract.Output.DICT)
     
     def getString(self):
         # Use OCR processing on images and return string of extracted text
         ## return - string of extracted text
-        config = '--oem {} --psm {}'.format(self.oem, self.psm)
-        return pytesseract.image_to_string(self.img, lang=self.lang, config=config)
+        s = ''
+        n = 0
+        for i in range(len(self.data['text'])):
+            if self.data['block_num'][i] != n:
+                s += '\n'
+                n += 1
+            s += self.data['text'][i]
+        return s
     
     def getData(self):
         # Use OCR processing on images and return data of extracted text
         ## return - dict of data from extracted text
-        config = '--oem {} --psm {}'.format(self.oem, self.psm)
-        return pytesseract.image_to_data(self.img, lang=self.lang, config=config, output_type= pytesseract.Output.DICT)
+        return self.data
     
     def getBox(self):
         ## Use OCR processing on images and return box of extracted letters
         ## return - string of all letters and their image cordinates
-        config = '--oem {} --psm {}'.format(self.oem, self.psm)
-        return pytesseract.image_to_boxes(self.img, lang=self.lang, config=config)
+        return pytesseract.image_to_boxes(self.img, lang=self.lang, config=self.config)
     
     def exportBoxes(self, conf = 90, fnfe = None):
         # Exports a copy of the image with all the text detection boxes displayed
@@ -47,13 +53,12 @@ class ocrCore():
         if fnfe == None: fn, fe = os.path.splitext(self.img.filename)
         else: fn, fe = fnfe
         
-        #TO DO : and conf elimnator
         savePath = fn + '_' + str(self.oem) + '-' + str(self.psm) + fe        
         fig = plt.figure(frameon=False)
         ax = fig.add_axes([0, 0, 1, 1])
         ax.imshow(self.img)
         ax.axis('off')
-        data = self.getData()
+        data = self.data
         
         for i in range(len(data['text'])):
             if int(data['conf'][i]) < conf: continue 
@@ -76,12 +81,10 @@ class ocrCore():
         if 'vert' in self.lang:
             base  = 2 #width
             start = 0 #left
-        mPos = int((len(wordList)+1)/2)
-
+        mPos = int(len(wordList)/2)
         if mPos == 0: return wordList
         median = [x[base] for x in sorted(wordList, key=lambda word: word[base])][mPos]
         medianTolerance = median * tolerance
-        
         
         sortAlign = sorted(wordList, key=lambda word: word[start])
         SACopy = sortAlign
@@ -108,7 +111,7 @@ class ocrCore():
         # When using using certain psm (like 11 or 12) text extracted are unordered. Reorder the extracted text
         # ordering depends on 'readfrom' class variables
         ## return - list of ordered extracted text
-        data = self.getData()
+        data = self.data
         wordList = []
         areaMax, leftMax, topMax = 0, 0, 0
 
@@ -150,6 +153,47 @@ class ocrCore():
         #return - image file
         return self.img
 
+class ocrPage(ocrPanel):
+    def __init__(self, img, lang, oem=3, psm=12):
+        self.imgMulti = cropper.getCrop(img)
+        self.PanelMulti = [ocrPanel(image, lang, oem, psm) for image in self.imgMulti['image']]
+        super().__init__(img, lang, oem, psm)
+    
+    def getDatas(self):
+        return [p.getData() for p in self.PanelMulti]
+    
+    def getStrings(self):
+        return [p.getString() for p in self.PanelMulti]
+    
+    def getBoxes(self):
+        return [p.getBox() for p in self.PanelMulti]
+    
+    def orderAllText(self):
+        leftMax = 10 ** len(str(max(self.imgMulti['left'])))
+        topMax = 10 ** len(str(max(self.imgMulti['top'])))
+        rank = []
+        for i in range(len(self.imgMulti['image'])):
+            left = self.imgMulti['left'][i]
+            top = self.imgMulti['top'][i]
+            if not self.readFromTop:  top = topMax - top
+            if not self.readFromLeft: left = leftMax - left
+            l = (top * leftMax) + left
+            rank.append((l, i))
+
+        allOrdered = []
+        rank = [z[1] for z in sorted(rank, key=lambda word: word[0])]
+        for i in rank:
+            ordered = self.PanelMulti[i].orderText()
+            #if len(ordered) != 0: 
+            allOrdered.append(ordered)
+        
+        for i in range(len(rank)):
+            print(rank[i], ':', allOrdered[i])
+        #print(rank)
+        #print(allOrdered)
+        return allOrdered
+
+
 if __name__ == "__main__":
     translator = google_translator()  
     lang='jpn_vert'
@@ -161,7 +205,12 @@ if __name__ == "__main__":
     img = Image.open(path)
     cropped = cropper.getCrop(img, ePath)
     
-    n = 0
+    n = -1
+    ocr = ocrPage(img, lang, 3,  12)
+    s = ocr.orderAllText()
+    #print(s)
+        
+    '''
     for i in cropped:
         print('bubble', n)
         ocr = ocrCore(i, lang, 3,  12)
@@ -180,3 +229,4 @@ if __name__ == "__main__":
         ocr.exportBoxes(fnfe=(os.path.join(ePath, str(n)), '.jpg'))
         n += 1
         print()
+        '''
