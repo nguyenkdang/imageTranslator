@@ -184,49 +184,29 @@ class ocrPage(ocrPanel):
         rank = [z[1] for z in sorted(rank, key=lambda word: word[0])]
         for i in rank:
             ordered = self.PanelMulti[i].orderText()
-            #if len(ordered) != 0: 
-            allOrdered.append(ordered)
+            if len(ordered) != 0: allOrdered.append(ordered)
         
-        for i in range(len(rank)):
-            print(rank[i], ':', allOrdered[i])
-        #print(rank)
-        #print(allOrdered)
         return allOrdered
 
 
 if __name__ == "__main__":
+    #print(pytesseract.get_languages())
     translator = google_translator()  
     lang='jpn_vert'
-
-    #print(pytesseract.get_languages())
     path = os.path.join(sys.path[0], 'raw8.png')
     ePath = os.path.join(sys.path[0], 'crop')
-    
     img = Image.open(path)
-    cropped = cropper.getCrop(img, ePath)
     
-    n = -1
+    #cropped = cropper.getCrop(img, ePath)
+    
     ocr = ocrPage(img, lang, 3,  12)
-    s = ocr.orderAllText()
-    #print(s)
-        
-    '''
-    for i in cropped:
-        print('bubble', n)
-        ocr = ocrCore(i, lang, 3,  12)
-        #extractedText = ocr.getString().strip()
-        orderedText = ocr.orderText()
+    allOrdered = ocr.orderAllText()
+    
+    for txt in allOrdered:
         combinedText = ''
-        print(orderedText)
-        for ot in orderedText:
-            if any(c.isalpha() for c in ot):
-                combinedText += ot
+        for t in txt:
+            #if any(c.isalpha() for c in t):
+            combinedText += t
         
-        #print(orderedText)
         tranlastedText = translator.translate(combinedText,lang_tgt='en')
-        print(combinedText, '->', tranlastedText)
-        
-        ocr.exportBoxes(fnfe=(os.path.join(ePath, str(n)), '.jpg'))
-        n += 1
-        print()
-        '''
+        print(combinedText, '->', tranlastedText, '\n')
