@@ -46,12 +46,13 @@ class ocrPanel():
         ## return - string of all letters and their image cordinates
         return pytesseract.image_to_boxes(self.img, lang=self.lang, config=self.config)
     
-    def exportBoxes(self, conf = 90, fnfe = None):
+    def exportBoxes(self, conf= 90, exportPath = None):
         # Exports a copy of the image with all the text detection boxes displayed
-        ## fnfe - list/tuple where list[0] = file name and list[1] = file extension for export
-        ##        if fnfn = None, will attempt to use the file name as a base for export name
-        if fnfe == None: fn, fe = os.path.splitext(self.img.filename)
-        else: fn, fe = fnfe
+        ## conf - int confidence level to consider extracted text usable
+        ## exportPath - String with custom export file path. If exportPath = None, 
+        ##              will attempt to use the file name as a base for export name
+        if exportPath == None: fn, fe = os.path.splitext(self.img.filename)
+        else: fn, fe = os.path.splitext(exportPath)
         
         savePath = fn + '_' + str(self.oem) + '-' + str(self.psm) + fe        
         fig = plt.figure(frameon=False)
@@ -107,7 +108,7 @@ class ocrPanel():
         
         return sortAlign
     
-    def orderText(self):
+    def orderText(self, conf= 90):
         # When using using certain psm (like 11 or 12) text extracted are unordered. Reorder the extracted text
         # ordering depends on 'readfrom' class variables
         ## return - list of ordered extracted text
@@ -116,7 +117,7 @@ class ocrPanel():
         areaMax, leftMax, topMax = 0, 0, 0
 
         for i in range(len(data['text'])):
-            if int(data['conf'][i]) < 90: continue 
+            if int(data['conf'][i]) < conf: continue 
             left, top, width, height = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
             info = [left, top, width, height, data['text'][i]]
 
@@ -154,21 +155,59 @@ class ocrPanel():
         return self.img
 
 class ocrPage(ocrPanel):
-    def __init__(self, img, lang, oem=3, psm=12):
-        self.imgMulti = cropper.getCrop(img)
+    def __init__(self, img, lang, oem=3, psm=12, exportCrop = False):
+        exportPath = None
+        if exportCrop:
+            fn, fe = os.path.splitext(img.filename)
+            #Create directory with same filename
+            dirName = fn.split('\\')[-1]
+            exportPath = os.path.join(os.path.dirname(fn), dirName ) 
+            if not os.path.isdir(exportPath): 
+                os.makedirs(exportPath) 
+        
+        self.imgMulti = cropper.getCrop(img, exportPath)
         self.PanelMulti = [ocrPanel(image, lang, oem, psm) for image in self.imgMulti['image']]
         super().__init__(img, lang, oem, psm)
     
     def getDatas(self):
+        # Get extracted text data of all cropped images
+        ## return - list of all data from cropped images
         return [p.getData() for p in self.PanelMulti]
     
     def getStrings(self):
+        # Get extracted text of all cropped images
+        ## return - list of all string from cropped images
         return [p.getString() for p in self.PanelMulti]
     
     def getBoxes(self):
+        # Get extracted text box information of all cropped images
+        ## return - list of all box information from cropped images
         return [p.getBox() for p in self.PanelMulti]
     
-    def orderAllText(self):
+    def exportAllBoxes(self, conf = 90):
+        # Exports copies of the cropped images with all their text detection boxes displayed
+        ## conf - int confidence level to consider extracted text usable
+
+        fn, fe = os.path.splitext(self.img.filename)
+        #Create directory with same filename
+        dirName = fn.split('\\')[-1]
+        exportPath = os.path.join(os.path.dirname(fn), dirName ) 
+        if not os.path.isdir(exportPath): 
+            os.makedirs(exportPath)
+
+        for i in range(len(self.PanelMulti)):
+            name = os.path.join(exportPath, 'Box{}{}'.format(i,fe))
+            self.PanelMulti[i].exportBoxes(conf, name)
+        print(fn, fe)
+        
+        return 0
+    
+    def orderAllText(self, conf=90):
+        # Order text by where the cropped image is placed on the page and the reading
+        # information. Order is done by page and then by panel.
+        ## conf - int confidence level to consider extracted text usable
+        ## return - list of extracted text by reading order
+
         leftMax = 10 ** len(str(max(self.imgMulti['left'])))
         topMax = 10 ** len(str(max(self.imgMulti['top'])))
         rank = []
@@ -183,7 +222,7 @@ class ocrPage(ocrPanel):
         allOrdered = []
         rank = [z[1] for z in sorted(rank, key=lambda word: word[0])]
         for i in rank:
-            ordered = self.PanelMulti[i].orderText()
+            ordered = self.PanelMulti[i].orderText(conf)
             if len(ordered) != 0: allOrdered.append(ordered)
         
         return allOrdered
@@ -194,14 +233,10 @@ if __name__ == "__main__":
     translator = google_translator()  
     lang='jpn_vert'
     path = os.path.join(sys.path[0], 'raw8.png')
-    ePath = os.path.join(sys.path[0], 'crop')
     img = Image.open(path)
     
-    #cropped = cropper.getCrop(img, ePath)
-    
-    ocr = ocrPage(img, lang, 3,  12)
+    ocr = ocrPage(img, lang, 3,  12, True)
     allOrdered = ocr.orderAllText()
-    
     for txt in allOrdered:
         combinedText = ''
         for t in txt:

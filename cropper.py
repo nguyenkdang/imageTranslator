@@ -50,13 +50,13 @@ def getCrop(image, exportEach = None, exportAll=None):
         cropImages['top'].append(y)
         
         if exportEach != None:
-            cpath = os.path.join(exportEach, '{}_crop-{}{}'.format(fn, i, fe))
+            cpath = os.path.join(exportEach, 'Crop{}_{}{}'.format(i, fn, fe))
             cv2.imwrite(cpath, np.array(cropImg))
         
         cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
     if exportAll != None:
-        outpath = os.path.join(exportAll, '{}_crop{}'.format(fn, fe))
+        outpath = os.path.join(exportAll, 'Crop_{}{}'.format(fn, fe))
         cv2.imwrite(outpath, img)
 
     return cropImages
