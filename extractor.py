@@ -1,5 +1,5 @@
 try:
-    from PIL import Image
+    from PIL import Image, ImageDraw, ImageFont
 except ImportError:
     import Image
 
@@ -226,16 +226,94 @@ class ocrPage(ocrPanel):
             if len(ordered) != 0: allOrdered.append(ordered)
         
         return allOrdered
+    
+    def splitter(self, text, n):
+        sectioned = text.split(' ')
+        size = len(text)
+        textBox = []
+        i = 0
+        curLineSize = 0
+        for t in sectioned:
+            if curLineSize + 1 + len(t) <= int(size/n):
+                if curLineSize == 0:
+                    textBox.append(t)
+                else:
+                    textBox[i] += ' ' + t
+                
+                curLineSize += 1 + len(t)
+            
+            else:
+                textBox.append(t)
+                curLineSize = len(t)
+                i += 1
+        
+        return textBox        
 
+    def cover(self, conf = 95):
+        datas = self.getDatas()
+        draw = ImageDraw.Draw(self.img)
+        fontPath = "arial.ttf"
+        toCrop = []
+        
+        for i in range(len(datas)):
+            useful = False
+            for c in datas[i]['conf']:
+                if int(c) >= conf: useful = True
+            
+            if useful: toCrop.append(i)
+
+        text = 'I will be the King of the pirates and candy'
+        for i in toCrop:
+            width, height = self.imgMulti['image'][i].size
+            left = self.imgMulti['left'][i]
+            top = self.imgMulti['top'][i]
+            ratio = width/height
+
+            #Find correct splitting amount
+            prevRatio = float('inf')
+            splitted = self.splitter(text, 1)
+            split_base = text.split(' ')
+            testFont = ImageFont.truetype(fontPath, size=12)
+            n = 1
+            while True:
+                splitted_fo = self.splitter(text, n)
+                wList = [testFont.getsize(x)[0] for x in splitted_fo]
+                totH  = sum([testFont.getsize(x)[1] for x in splitted_fo])   
+                maxW  = max(wList)
+                maxWi = wList.index(maxW)  
+                if abs((maxW/totH) - ratio) > abs(prevRatio - ratio) or splitted == split_base: break
+                
+                splitted  = splitted_fo
+                prevRatio = maxW/totH
+                prevMaxWi = maxWi
+                n += 1
+                        
+            #Find correct font size
+            textSize = 1
+            while True:
+                foFont = ImageFont.truetype(fontPath, size=textSize)
+                if (prevRatio >= ratio and foFont.getsize(splitted[prevMaxWi])[0] >= width) or +\
+                   (prevRatio < ratio and foFont.getsize(splitted[prevMaxWi])[1] * (len(splitted)) >= height): break 
+                font = foFont
+                textSize+=1
+            
+            #Draw on image
+            draw.rectangle((left, top, left + width, top + height), fill='black')
+            topOffset = 0
+            for x in splitted:
+                draw.text((left, top + topOffset), x, fill=(209, 239, 8), font=font)
+                topOffset +=  foFont.getsize(x)[1]
+        
+        img.save(os.path.join(sys.path[0], 'out.png'))
 
 if __name__ == "__main__":
     #print(pytesseract.get_languages())
     translator = google_translator()  
     lang='jpn_vert'
-    path = os.path.join(sys.path[0], 'raw8.png')
+    path = os.path.join(sys.path[0], 'raw2.jpg')
     img = Image.open(path)
     
-    ocr = ocrPage(img, lang, 3,  12, True)
+    ocr = ocrPage(img, lang, 3,  12)
     allOrdered = ocr.orderAllText()
     for txt in allOrdered:
         combinedText = ''
@@ -245,3 +323,5 @@ if __name__ == "__main__":
         
         tranlastedText = translator.translate(combinedText,lang_tgt='en')
         print(combinedText, '->', tranlastedText, '\n')
+
+    ocr.cover()
