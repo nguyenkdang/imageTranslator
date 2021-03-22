@@ -150,6 +150,21 @@ class ocrPanel():
         
         return rank
 
+    def getBoxSize(self, conf=90):
+        data = self.getData()
+        minLeft   = float('inf')
+        minTop    = float('inf')
+        maxRight  = float('-inf')
+        maxBottom = float('-inf')
+        for i in range(len(data['text'])):
+            if int(data['conf'][i]) >= conf:
+                if data['left'][i] < minLeft: minLeft = data['left'][i] 
+                if data['top'][i] < minTop: minTop = data['top'][i]
+                if data['left'][i] + data['width'][i] > maxRight: maxRight = data['left'][i] + data['width'][i]
+                if data['top'][i]  + data['height'][i] > maxBottom: maxBottom = data['top'][i]  + data['height'][i]
+        if minLeft == float('inf'): return None
+        return [minLeft, minTop, maxRight-minLeft, maxBottom-minTop]
+
     def getImage(self):
         #return - image file
         return self.img
@@ -166,24 +181,27 @@ class ocrPage(ocrPanel):
                 os.makedirs(exportPath) 
         
         self.imgMulti = cropper.getCrop(img, exportPath)
-        self.PanelMulti = [ocrPanel(image, lang, oem, psm) for image in self.imgMulti['image']]
+        self.panelMulti = [ocrPanel(image, lang, oem, psm) for image in self.imgMulti['image']]
         super().__init__(img, lang, oem, psm)
     
     def getDatas(self):
         # Get extracted text data of all cropped images
         ## return - list of all data from cropped images
-        return [p.getData() for p in self.PanelMulti]
+        return [p.getData() for p in self.panelMulti]
     
     def getStrings(self):
         # Get extracted text of all cropped images
         ## return - list of all string from cropped images
-        return [p.getString() for p in self.PanelMulti]
+        return [p.getString() for p in self.panelMulti]
     
     def getBoxes(self):
         # Get extracted text box information of all cropped images
         ## return - list of all box information from cropped images
-        return [p.getBox() for p in self.PanelMulti]
+        return [p.getBox() for p in self.panelMulti]
     
+    def getBoxSizes(self, conf=90):
+        return [p.getBoxSize(conf) for p in self.panelMulti]
+
     def exportAllBoxes(self, conf = 90):
         # Exports copies of the cropped images with all their text detection boxes displayed
         ## conf - int confidence level to consider extracted text usable
@@ -195,9 +213,9 @@ class ocrPage(ocrPanel):
         if not os.path.isdir(exportPath): 
             os.makedirs(exportPath)
 
-        for i in range(len(self.PanelMulti)):
+        for i in range(len(self.panelMulti)):
             name = os.path.join(exportPath, 'Box{}{}'.format(i,fe))
-            self.PanelMulti[i].exportBoxes(conf, name)
+            self.panelMulti[i].exportBoxes(conf, name)
         print(fn, fe)
         
         return 0
@@ -222,34 +240,30 @@ class ocrPage(ocrPanel):
         allOrdered = []
         rank = [z[1] for z in sorted(rank, key=lambda word: word[0])]
         for i in rank:
-            ordered = self.PanelMulti[i].orderText(conf)
+            ordered = self.panelMulti[i].orderText(conf)
             if len(ordered) != 0: allOrdered.append(ordered)
         
         return allOrdered
     
     def splitter(self, text, n):
+        if text == '': return []
         sectioned = text.split(' ')
-        size = len(text)
-        textBox = []
+        textBox = [sectioned[0]]
         i = 0
         curLineSize = 0
-        for t in sectioned:
-            if curLineSize + 1 + len(t) <= int(size/n):
-                if curLineSize == 0:
-                    textBox.append(t)
-                else:
-                    textBox[i] += ' ' + t
-                
-                curLineSize += 1 + len(t)
-            
+        for t in sectioned[1:]:
+            tsize = len(t)
+            if curLineSize + 1 + tsize <= int(len(text)/n):
+                textBox[i] += ' ' + t
+                curLineSize += 1 + tsize
             else:
                 textBox.append(t)
-                curLineSize = len(t)
+                curLineSize = tsize
                 i += 1
-        
+                
         return textBox        
 
-    def cover(self, conf = 95):
+    def cover(self, conf = 90):
         datas = self.getDatas()
         draw = ImageDraw.Draw(self.img)
         fontPath = "arial.ttf"
@@ -259,14 +273,17 @@ class ocrPage(ocrPanel):
             useful = False
             for c in datas[i]['conf']:
                 if int(c) >= conf: useful = True
-            
             if useful: toCrop.append(i)
 
         text = 'I will be the King of the pirates and candy'
+        boxSizes = self.getBoxSizes(conf)
         for i in toCrop:
-            width, height = self.imgMulti['image'][i].size
-            left = self.imgMulti['left'][i]
-            top = self.imgMulti['top'][i]
+            l_off, t_off,width,height = boxSizes[i]
+            #width, height = self.imgMulti['image'][i].size ##CHANGE
+            left = l_off + self.imgMulti['left'][i]
+            top = t_off + self.imgMulti['top'][i]
+            x = translateList(self.panelMulti[i].orderText())
+            text = x[1].strip()
             ratio = width/height
 
             #Find correct splitting amount
@@ -280,14 +297,13 @@ class ocrPage(ocrPanel):
                 wList = [testFont.getsize(x)[0] for x in splitted_fo]
                 totH  = sum([testFont.getsize(x)[1] for x in splitted_fo])   
                 maxW  = max(wList)
-                maxWi = wList.index(maxW)  
-                if abs((maxW/totH) - ratio) > abs(prevRatio - ratio) or splitted == split_base: break
-                
+                maxWi = wList.index(maxW) 
+                if (abs((maxW/totH) - ratio) > abs(prevRatio - ratio)) or (splitted == split_base and n != 1): break
                 splitted  = splitted_fo
                 prevRatio = maxW/totH
                 prevMaxWi = maxWi
                 n += 1
-                        
+
             #Find correct font size
             textSize = 1
             while True:
@@ -298,30 +314,37 @@ class ocrPage(ocrPanel):
                 textSize+=1
             
             #Draw on image
-            draw.rectangle((left, top, left + width, top + height), fill='black')
+            draw.rectangle((left, top, left + width, top + height), fill='white')
             topOffset = 0
             for x in splitted:
-                draw.text((left, top + topOffset), x, fill=(209, 239, 8), font=font)
+                draw.text((left, top + topOffset), x, fill='black', font=font)
                 topOffset +=  foFont.getsize(x)[1]
         
-        img.save(os.path.join(sys.path[0], 'out.png'))
+        img.save(os.path.join(sys.path[0], 'translated.png'))
+
+
+def translateList(textList, lang='en'):
+    translator = google_translator()  
+    combinedText = ''
+    for t in textList:
+        #if any(c.isalpha() for c in t):
+        combinedText += t
+        
+    return (combinedText, translator.translate(combinedText,lang_tgt='en'))
+        
 
 if __name__ == "__main__":
     #print(pytesseract.get_languages())
     translator = google_translator()  
     lang='jpn_vert'
-    path = os.path.join(sys.path[0], 'raw2.jpg')
+    path = os.path.join(sys.path[0], 'raw8.png')
     img = Image.open(path)
     
     ocr = ocrPage(img, lang, 3,  12)
     allOrdered = ocr.orderAllText()
-    for txt in allOrdered:
-        combinedText = ''
-        for t in txt:
-            #if any(c.isalpha() for c in t):
-            combinedText += t
-        
-        tranlastedText = translator.translate(combinedText,lang_tgt='en')
-        print(combinedText, '->', tranlastedText, '\n')
+    for txt in allOrdered:        
+        tranlastedText = translateList(txt)[1]
+        originalText = translateList(txt)[0]
+        print(originalText, '->', tranlastedText, '\n')
 
     ocr.cover()
