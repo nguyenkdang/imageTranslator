@@ -3,7 +3,7 @@ try:
 except ImportError:
     import Image
 
-import pytesseract, sys, os, cv2, cropper
+import pytesseract, sys, os, cropper
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from google_trans_new import google_translator 
@@ -11,10 +11,10 @@ pytesseract.pytesseract.tesseract_cmd = 'C:/Program Files/Tesseract-OCR/tesserac
 
 class ocrPanel():
     def __init__(self, img, lang, oem=3, psm=12):
-        ## img - image file
-        ## psm/oem - int defining the mode of text extraction oem(0-3), psm(0-13)
-        ## lang - string of language to extract (use pytesseract.get_languages() to get avaiilible languages)
-        ## readFromTop/Left - bool of which region to read from 
+        # img - image file
+        # psm/oem - int defining the mode of text extraction oem(0-3), psm(0-13)
+        # lang - string of language to extract (use pytesseract.get_languages() to get avaiilible languages)
+        # readFromTop/Left - bool of which region to read from 
         self.img = img
         self.psm = psm
         self.oem = oem
@@ -25,8 +25,8 @@ class ocrPanel():
         self.data = pytesseract.image_to_data(self.img, lang=self.lang, config=self.config, output_type= pytesseract.Output.DICT)
     
     def getString(self):
-        # Use OCR processing on images and return string of extracted text
-        ## return - string of extracted text
+        ## Use OCR processing on images and return string of extracted text
+        # return - string of extracted text
         s = ''
         n = 0
         for i in range(len(self.data['text'])):
@@ -37,20 +37,19 @@ class ocrPanel():
         return s
     
     def getData(self):
-        # Use OCR processing on images and return data of extracted text
-        ## return - dict of data from extracted text
+        ## Use OCR processing on images and return data of extracted text
+        # return - dict of data from extracted text
         return self.data
     
     def getBox(self):
         ## Use OCR processing on images and return box of extracted letters
-        ## return - string of all letters and their image cordinates
+        # return - string of all letters and their image cordinates
         return pytesseract.image_to_boxes(self.img, lang=self.lang, config=self.config)
     
     def exportBoxes(self, conf= 90, exportPath = None):
-        # Exports a copy of the image with all the text detection boxes displayed
-        ## conf - int confidence level to consider extracted text usable
-        ## exportPath - String with custom export file path. If exportPath = None, 
-        ##              will attempt to use the file name as a base for export name
+        ## Exports a copy of the image with all the text detection boxes displayed
+        # conf - int confidence level to consider extracted text usable
+        # exportPath - String with custom export file path. If exportPath = None, will attempt to use the file name as a base for export name
         if exportPath == None: fn, fe = os.path.splitext(self.img.filename)
         else: fn, fe = os.path.splitext(exportPath)
         
@@ -73,10 +72,10 @@ class ocrPanel():
         plt.savefig(savePath, bbox_inches='tight', pad_inches=0.0, dpi=200)
 
     def alignBoxes(self, wordList, tolerance=0.33):     
-        # if text detection boxes are closed together align them according to reading style 
-        ## wordList - list of [left, top, width, height, word] representing text detection box
-        ## tolerance - percent of median box's dimension (width or height) that can be considered alignable
-        ## return - list of [left, top, width, height, word] representing text detection box
+        ## if text detection boxes are closed together align them according to reading style 
+        # wordList - list of [left, top, width, height, word] representing text detection box
+        # tolerance - percent of median box's dimension (width or height) that can be considered alignable
+        # return - list of [left, top, width, height, word] representing text detection box
         base = 3 #height
         start = 1 #top
         if 'vert' in self.lang:
@@ -109,9 +108,8 @@ class ocrPanel():
         return sortAlign
     
     def orderText(self, conf= 90):
-        # When using using certain psm (like 11 or 12) text extracted are unordered. Reorder the extracted text
-        # ordering depends on 'readfrom' class variables
-        ## return - list of ordered extracted text
+        ## When using using certain psm (like 11 or 12) text extracted are unordered. Reorder the extracted text ordering depends on 'readfrom' class variables
+        # return - list of ordered extracted text
         data = self.data
         wordList = []
         areaMax, leftMax, topMax = 0, 0, 0
@@ -168,6 +166,7 @@ class ocrPanel():
     def getImage(self):
         #return - image file
         return self.img
+
 
 class ocrPage(ocrPanel):
     def __init__(self, img, lang, oem=3, psm=12, exportCrop = False):
@@ -263,7 +262,7 @@ class ocrPage(ocrPanel):
                 
         return textBox        
 
-    def cover(self, conf = 90):
+    def cover(self, img, conf = 90):
         datas = self.getDatas()
         draw = ImageDraw.Draw(self.img)
         fontPath = "arial.ttf"
@@ -320,7 +319,7 @@ class ocrPage(ocrPanel):
                 draw.text((left, top + topOffset), x, fill='black', font=font)
                 topOffset +=  foFont.getsize(x)[1]
         
-        img.save(os.path.join(sys.path[0], 'translated.png'))
+        img.save(os.path.join(sys.path[0], '../output/translated.png'))
 
 
 def translateList(textList, lang='en'):
@@ -331,20 +330,3 @@ def translateList(textList, lang='en'):
         combinedText += t
         
     return (combinedText, translator.translate(combinedText,lang_tgt='en'))
-        
-
-if __name__ == "__main__":
-    #print(pytesseract.get_languages())
-    translator = google_translator()  
-    lang='jpn_vert'
-    path = os.path.join(sys.path[0], 'raw8.png')
-    img = Image.open(path)
-    
-    ocr = ocrPage(img, lang, 3,  12)
-    allOrdered = ocr.orderAllText()
-    for txt in allOrdered:        
-        tranlastedText = translateList(txt)[1]
-        originalText = translateList(txt)[0]
-        print(originalText, '->', tranlastedText, '\n')
-
-    ocr.cover()
